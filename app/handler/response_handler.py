@@ -232,6 +232,62 @@ def _extract_result(
     return text, reasoning_content, tool_calls, thought
 
 
+def _extract_gemini_result(
+    response: Dict[str, Any],
+    model: str,
+    stream: bool = False,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], Optional[bool]]:
+    """Gemini专用的结果提取方法，处理parts结构"""
+    parts = []
+    tool_calls = []
+    thought = None
+    
+    if response.get("candidates"):
+        candidate = response["candidates"][0]
+        content = candidate.get("content", {})
+        original_parts = content.get("parts", [])
+        
+        if not original_parts:
+            logger.warning("No parts found in Gemini response")
+            return [], [], None
+        
+        for part in original_parts:
+            if not part or not isinstance(part, dict):
+                continue
+                
+            # 处理文本内容
+            if "text" in part:
+                new_part = {"text": part["text"]}
+                if "thought" in part:
+                    new_part["thought"] = part["thought"]
+                    if thought is None:
+                        thought = part["thought"]
+                parts.append(new_part)
+                
+            # 处理内联数据(图片等)
+            elif "inlineData" in part:
+                inline_data = part["inlineData"]
+                if isinstance(inline_data, dict) and "mimeType" in inline_data and "data" in inline_data:
+                    parts.append({
+                        "inlineData": {
+                            "mimeType": inline_data["mimeType"],
+                            "data": inline_data["data"]
+                        }
+                    })
+                else:
+                    logger.warning("Invalid inlineData structure in part")
+                    
+            # 处理函数调用
+            elif "functionCall" in part:
+                tool_calls.append(part)
+                
+            # 处理其他类型的内容
+            else:
+                parts.append(part)
+    
+    return parts, tool_calls, thought
+
+
 def _extract_image_data(part: dict) -> str:
     image_uploader = None
     if settings.UPLOAD_PROVIDER == "smms":
@@ -303,16 +359,17 @@ def _extract_tool_calls(
 def _handle_gemini_stream_response(
     response: Dict[str, Any], model: str, stream: bool
 ) -> Dict[str, Any]:
-    text, reasoning_content, tool_calls, thought = _extract_result(
-        response, model, stream=stream, gemini_format=True
+    parts, tool_calls, thought = _extract_gemini_result(
+        response, model, stream=stream
     )
+    
+    # 如果有工具调用，优先使用工具调用
     if tool_calls:
-        content = {"parts": tool_calls, "role": "model"}
+        final_parts = tool_calls
     else:
-        part = {"text": text}
-        if thought is not None:
-            part["thought"] = thought
-        content = {"parts": [part], "role": "model"}
+        final_parts = parts if parts else [{"text": ""}]
+    
+    content = {"parts": final_parts, "role": "model"}
     response["candidates"][0]["content"] = content
     return response
 
@@ -320,18 +377,17 @@ def _handle_gemini_stream_response(
 def _handle_gemini_normal_response(
     response: Dict[str, Any], model: str, stream: bool
 ) -> Dict[str, Any]:
-    text, reasoning_content, tool_calls, thought = _extract_result(
-        response, model, stream=stream, gemini_format=True
+    parts, tool_calls, thought = _extract_gemini_result(
+        response, model, stream=stream
     )
-    parts = []
+    
+    # 如果有工具调用，优先使用工具调用
     if tool_calls:
-        parts = tool_calls
+        final_parts = tool_calls
     else:
-        if thought is not None:
-            parts.append({"text": reasoning_content,"thought": thought})
-        part = {"text": text}
-        parts.append(part)
-    content = {"parts": parts, "role": "model"}
+        final_parts = parts if parts else [{"text": ""}]
+    
+    content = {"parts": final_parts, "role": "model"}
     response["candidates"][0]["content"] = content
     return response
 

@@ -104,7 +104,6 @@ class GeminiApiClient(ApiClient):
                 # 检查响应结构的基本信息
                 if not response_data.get("candidates"):
                     logger.warning("No candidates found in API response")
-                
                 return response_data
                 
             except httpx.TimeoutException as e:

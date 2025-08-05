@@ -15,7 +15,7 @@ class VersionInfo(BaseModel):
     update_available: bool = Field(False, description="是否有可用更新")
     error_message: Optional[str] = Field(None, description="检查更新时发生的错误信息")
 
-@router.get("/check", response_model=VersionInfo, summary="检查应用程序更新")
+##@router.get("/check", response_model=VersionInfo, summary="检查应用程序更新")
 async def get_version_info():
     """
     检查当前应用程序版本与最新的 GitHub release 版本。
